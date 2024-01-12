@@ -28,10 +28,16 @@ const LOTASheetCompanion = (function () {
   function getCharacterHitDice(characterId) {
     const characterHitDice = {};
     _.each(DIE_SIZES, (dieSize) => {
-      characterHitDice[`d${dieSize}`] = getCharacterAttr(characterId, {
-        name: `he_d${dieSize}`,
-        parseInt: true,
-      });
+      const dieAmount = MiscScripts.getCharacterAttr(characterId, [
+        {
+          name: `hd_d${dieSize}`,
+          parseInt: true,
+        },
+      ]);
+
+      if (!isNaN(dieAmount)) {
+        characterHitDice[`d${dieSize}`] = dieAmount;
+      }
     });
 
     return characterHitDice;
@@ -40,8 +46,6 @@ const LOTASheetCompanion = (function () {
   /** !lotahd Script */
 
   function hitDieScript(argsArray, characterName, characterId) {
-    const [hitDieToExpend] = argsArray;
-
     const [currentHP, maxHP, maxReducedHP] = MiscScripts.getCharacterAttr(
       characterId,
       [
@@ -51,66 +55,104 @@ const LOTASheetCompanion = (function () {
       ]
     );
 
-    if (currentHP === maxHP) {
+    const trueMaxHP = maxHP - maxReducedHP;
+    if (currentHP === trueMaxHP) {
       throw new Error(
         `${characterName} is already at maximum HP and does not need to expend any hit dice.`
       );
     }
 
-    const [hitDieAmount, hitDieType] = _.map(
-      hitDieToExpend.split('d'),
-      (hitDieItem) => parseInt(hitDieItem)
-    );
+    const hitDieToExpend = argsArray[0].toLowerCase();
+    if (!/\d+d\d+/.test(hitDieToExpend)) {
+      throw new Error(
+        `<code>${hitDieToExpend}</code> is not a valid argument. The hit die to expend must be in the format <code>XdY</code>, where X is the amount of hit die to expend and Y is the size of the hit die.`
+      );
+    }
 
-    if (!hitDieAmount) {
+    const indexOfD = hitDieToExpend.indexOf('d');
+    const amountToExpend = parseInt(hitDieToExpend.slice(0, indexOfD));
+    const hitDieTypeToExpend = hitDieToExpend.slice(indexOfD);
+
+    if (!amountToExpend) {
       throw new Error(
         'The amount of hit die to expend must be an integer larger than 0.'
       );
     }
 
-    const hitDieAttrName = `hd_d${hitDieType}`;
-    const [characterConMod, currentHitDie] = MiscScripts.getCharacterAttr(
-      characterId,
-      [
-        { name: 'constitution_mod', parseInt: true },
-        { name: hitDieAttrName, parseInt: true },
-      ]
-    );
-    if (isNaN(currentHitDie)) {
+    const hitDieAttrName = `hd_${hitDieTypeToExpend}`;
+    const totalHitDice = getCharacterHitDice(characterId);
+    const currentHitDie = totalHitDice[hitDieTypeToExpend];
+    const [characterConMod] = MiscScripts.getCharacterAttr(characterId, [
+      { name: 'constitution_mod', parseInt: true },
+    ]);
+
+    if (currentHitDie === undefined) {
       throw new Error(
-        `${characterName} does not have any levels in a class that use d${hitDieType} hit dice.`
+        `${characterName} does not have any levels in a class that use ${hitDieTypeToExpend} hit dice.`
       );
     }
 
-    const newHitDieAmount = currentHitDie - hitDieAmount;
+    const newHitDieAmount = currentHitDie - amountToExpend;
     if (newHitDieAmount < 0) {
       throw new Error(
-        `Cannot expend ${hitDieAmount}d${hitDieType} hit dice. ${characterName} only has ${currentHitDie}d${hitDieType} available to expend.`
+        `Cannot expend ${amountToExpend}${hitDieTypeToExpend} hit dice. ${characterName} only has ${currentHitDie}${hitDieTypeToExpend} available to expend.`
       );
     }
     sendMessage(
-      `[[${hitDieAmount}d${hitDieType}r<${hitDieType / 2} + ${
-        hitDieAmount * (characterConMod < 0 ? 0 : characterConMod)
-      }]]`,
+      `[[${amountToExpend}${hitDieTypeToExpend}r<${
+        hitDieTypeToExpend.slice(1) / 2
+      } + ${amountToExpend * (characterConMod < 0 ? 0 : characterConMod)}]]`,
       (ops) => {
         const { expression: rollExpression, results } = ops[0].inlinerolls[0];
-        const trueMaxHP = maxHP - maxReducedHP;
         const newHP = currentHP + parseInt(results.total);
         const trueNewHP = newHP > trueMaxHP ? trueMaxHP : newHP;
 
         setAttrs(characterId, {
-          [hitDieAttrName]: currentHitDie - hitDieAmount,
+          [hitDieAttrName]: newHitDieAmount,
           hp: trueNewHP,
         });
 
-        sendMessage(`&{template:5e-shaped} {{title=${hitDieAmount}d${hitDieType} Hit Dice for ${characterName}}} {{roll1=[[${results.total} [${rollExpression}]]]}} {{content=**New HP:** ${trueNewHP} / ${trueMaxHP}
-            
-        ${newHitDieAmount}d${hitDieType} hit die remaining}}`);
+        const totalHitDiceKeys = Object.keys(totalHitDice);
+
+        sendMessage(`&{template:5e-shaped} {{title=${amountToExpend}${hitDieTypeToExpend} Hit Dice for ${characterName}}} {{roll1=[[${
+          results.total
+        } [${rollExpression}]]]}} {{content=**New HP:** ${trueNewHP} / ${trueMaxHP}
+        **Remaining Hit Dice:**
+        <ul>${_.map(
+          totalHitDiceKeys,
+          (hitDieKey) =>
+            `<li>${
+              hitDieTypeToExpend === hitDieKey
+                ? `${newHitDieAmount}${hitDieKey}`
+                : `${totalHitDice[hitDieKey]}${hitDieKey}`
+            }</li>`
+        ).join('')}</ul>}}`);
       }
     );
   }
 
   /** !lotagunslinger Script */
+
+  const getAmmoAttrs = (ammoId) => {
+    const ammoAttrString = `repeating_ammo_${ammoId}_`;
+    const ammoUsesString = `${ammoAttrString}uses`;
+    const [ammoUsesName, ammoUsesValue] = MiscScripts.getCharacterAttr(
+      characterId,
+      [`${ammoAttrString}name`, { name: ammoUsesString, parseInt: true }]
+    );
+
+    if (isNaN(ammoUsesValue)) {
+      throw new Error(
+        `${ammoUsesString} is an invalid ammo ID or there is no value for the associated ID.`
+      );
+    }
+
+    return {
+      ammoUsesString,
+      ammoUsesValue,
+      ammoUsesName,
+    };
+  };
 
   function gunslingerScript(argsArray, characterName, characterId) {
     const [command, weaponId, ...args] = argsArray;
@@ -121,24 +163,6 @@ const LOTASheetCompanion = (function () {
         { name: `${weaponAttrString}uses`, parseInt: true },
         { name: `${weaponAttrString}uses`, parseInt: true, value: 'max' },
       ]);
-    const getAmmoAttrs = (ammoId) => {
-      const ammoAttrString = `repeating_ammo_${ammoId}_`;
-      const ammoUsesStr = `${ammoAttrString}uses`;
-      const [ammoUsesName, ammoUsesVal] = MiscScripts.getCharacterAttr(
-        characterId,
-        [`${ammoAttrString}name`, { name: ammoUsesStr, parseInt: true }]
-      );
-
-      if (isNaN(ammoUsesVal)) {
-        throw new Error(`${ammoUsesStr} is an invalid ammo ID.`);
-      }
-
-      return {
-        ammoUsesStr,
-        ammoUsesVal,
-        ammoUsesName,
-      };
-    };
 
     const attrsToSet = {};
     switch (command) {
@@ -175,8 +199,8 @@ const LOTASheetCompanion = (function () {
         }
 
         const {
-          ammoUsesStr: bulkAmmoUsesStr,
-          ammoUsesVal: bulkAmmoUsesVal,
+          ammoUsesString: bulkAmmoUsesStr,
+          ammoUsesValue: bulkAmmoUsesVal,
           ammoUsesName: bulkAmmoUsesName,
         } = getAmmoAttrs(args[1]);
         if (isPositiveAmount && bulkAmmoUsesVal < amountToReload) {
@@ -188,8 +212,8 @@ const LOTASheetCompanion = (function () {
         attrsToSet[bulkAmmoUsesStr] = bulkAmmoUsesVal - amountToReload;
 
         const {
-          ammoUsesStr: weaponAmmoUsesReloadStr,
-          ammoUsesVal: weaponAmmoUsesReloadVal,
+          ammoUsesString: weaponAmmoUsesReloadStr,
+          ammoUsesValue: weaponAmmoUsesReloadVal,
           ammoUsesName: weaponAmmoUsesReloadName,
         } = args[2] ? getAmmoAttrs(args[2]) : {};
         if (!isPositiveAmount && weaponAmmoUsesReloadVal === 0) {
@@ -225,8 +249,8 @@ const LOTASheetCompanion = (function () {
         attrsToSet[`${weaponAttrString}uses`] = weaponUses - amountToShoot;
 
         const {
-          ammoUsesStr: weaponAmmoUsesShootStr,
-          ammoUsesVal: weaponAmmoUsesShootVal,
+          ammoUsesString: weaponAmmoUsesShootStr,
+          ammoUsesValue: weaponAmmoUsesShootVal,
           ammoUsesName: weaponAmmoUsesShootName,
         } = args[1] ? getAmmoAttrs(args[1]) : {};
 
@@ -245,9 +269,9 @@ const LOTASheetCompanion = (function () {
       case 'status':
         const weaponAmmoStatusArray = args.length
           ? _.map(args, (arg) => {
-              const { ammoUsesVal, ammoUsesName } = getAmmoAttrs(arg);
+              const { ammoUsesValue, ammoUsesName } = getAmmoAttrs(arg);
 
-              return `<li>${ammoUsesVal}x ${ammoUsesName}</li>`;
+              return `<li>${ammoUsesValue}x ${ammoUsesName}</li>`;
             })
           : [];
         const weaponAmmoStatusString = weaponAmmoStatusArray.length
@@ -260,7 +284,7 @@ const LOTASheetCompanion = (function () {
         break;
       default:
         throw new Error(
-          `${command} is not a valid command for the lotagunslinger script. The command must be either reload, shoot, or status.`
+          `<code>${command}</code> is not a valid command for the lotagunslinger script. The command must be either <code>reload</code>, <code>shoot</code>, or <code>status</code>.`
         );
     }
   }
@@ -275,13 +299,19 @@ const LOTASheetCompanion = (function () {
 
     try {
       const { content: messageContent, playerid } = message;
-      const [, characterId, ...commandArgs] = messageContent.split(' ');
+      const [scriptName, characterId, ...commandArgs] =
+        messageContent.split(' ');
       const character = getObj('character', characterId);
       const characterName = character.get('name');
 
       if (!character.get('controlledby').includes(playerid)) {
         throw new Error(
           `You do not control character <code>${characterName}</code>. You can only use the LOTA sheet companion commands on characters you control.`
+        );
+      }
+      if (!commandArgs.length) {
+        throw new Error(
+          `No arguments were passed to the <code>${scriptName}</code> script.`
         );
       }
 
