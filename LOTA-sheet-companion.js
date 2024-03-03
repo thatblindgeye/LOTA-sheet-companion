@@ -154,7 +154,7 @@ const LOTASheetCompanion = (function () {
     };
   };
 
-  function gunslingerScript(argsArray, characterName, characterId) {
+  function gunslingerAmmoScript(argsArray, characterName, characterId) {
     const [command, weaponId, ...args] = argsArray;
     const weaponAttrString = `repeating_offense_${weaponId}_`;
     const [weaponName, weaponUses, weaponMaxUses] =
@@ -237,7 +237,6 @@ const LOTASheetCompanion = (function () {
           } the ${weaponName}`
         );
         break;
-
       case 'shoot':
         const amountToShoot = parseInt(args[0]);
 
@@ -319,8 +318,8 @@ const LOTASheetCompanion = (function () {
         hitDieScript(commandArgs, characterName, character.id);
       }
 
-      if (/^!lotagunslinger/i.test(messageContent)) {
-        gunslingerScript(commandArgs, characterName, character.id);
+      if (/^!lotagunslingerammo/i.test(messageContent)) {
+        gunslingerAmmoScript(commandArgs, characterName, character.id);
       }
     } catch (error) {
       sendMessage(`/w "${message.who.replace(' (GM)', '')}" ${error.message}`);
