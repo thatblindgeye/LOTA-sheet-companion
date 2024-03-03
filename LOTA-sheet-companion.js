@@ -133,7 +133,7 @@ const LOTASheetCompanion = (function () {
 
   /** !lotagunslinger Script */
 
-  const getAmmoAttrs = (ammoId) => {
+  const getAmmoAttrs = (ammoId, characterId) => {
     const ammoAttrString = `repeating_ammo_${ammoId}_`;
     const ammoUsesString = `${ammoAttrString}uses`;
     const [ammoUsesName, ammoUsesValue] = MiscScripts.getCharacterAttr(
@@ -202,7 +202,7 @@ const LOTASheetCompanion = (function () {
           ammoUsesString: bulkAmmoUsesStr,
           ammoUsesValue: bulkAmmoUsesVal,
           ammoUsesName: bulkAmmoUsesName,
-        } = getAmmoAttrs(args[1]);
+        } = getAmmoAttrs(args[1], characterId);
         if (isPositiveAmount && bulkAmmoUsesVal < amountToReload) {
           throw new Error(
             `Unable to reload ${amountToReload} ${bulkAmmoUsesName} as there are only ${bulkAmmoUsesVal} available.`
@@ -215,7 +215,7 @@ const LOTASheetCompanion = (function () {
           ammoUsesString: weaponAmmoUsesReloadStr,
           ammoUsesValue: weaponAmmoUsesReloadVal,
           ammoUsesName: weaponAmmoUsesReloadName,
-        } = args[2] ? getAmmoAttrs(args[2]) : {};
+        } = args[2] ? getAmmoAttrs(args[2], characterId) : {};
         if (!isPositiveAmount && weaponAmmoUsesReloadVal === 0) {
           throw new Error(
             `Unable to unload ${
@@ -251,7 +251,7 @@ const LOTASheetCompanion = (function () {
           ammoUsesString: weaponAmmoUsesShootStr,
           ammoUsesValue: weaponAmmoUsesShootVal,
           ammoUsesName: weaponAmmoUsesShootName,
-        } = args[1] ? getAmmoAttrs(args[1]) : {};
+        } = args[1] ? getAmmoAttrs(args[1], characterId) : {};
 
         if (amountToShoot > weaponAmmoUsesShootVal) {
           throw new Error(
@@ -268,7 +268,10 @@ const LOTASheetCompanion = (function () {
       case 'status':
         const weaponAmmoStatusArray = args.length
           ? _.map(args, (arg) => {
-              const { ammoUsesValue, ammoUsesName } = getAmmoAttrs(arg);
+              const { ammoUsesValue, ammoUsesName } = getAmmoAttrs(
+                arg,
+                characterId
+              );
 
               return `<li>${ammoUsesValue}x ${ammoUsesName}</li>`;
             })

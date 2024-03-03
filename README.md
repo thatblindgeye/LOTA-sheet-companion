@@ -38,7 +38,7 @@ Handles loading and unloading ammo from the weapon associated with the `weapon i
 
 #### Shoot ammo
 
-`!lotagunslingerammo [character id] load [weapon id] [amount to shoot] [weapon ammo id]`
+`!lotagunslingerammo [character id] shoot [weapon id] [amount to shoot] [weapon ammo id]`
 
 Handles expending ammo when shooting a weapon.
 
@@ -47,7 +47,7 @@ Handles expending ammo when shooting a weapon.
 
 #### Ammo status
 
-`!lotagunslingerammo [character id] load [weapon id] [space separated list of ammo ids]`
+`!lotagunslingerammo [character id] status [weapon id] [space separated list of ammo ids]`
 
 Handles displaying the status of the specified weapon.
 
