@@ -33,8 +33,8 @@ Handles ammo for the gunslinger, including updating weapon current uses and ammo
 Handles loading and unloading ammo from the weapon associated with the `weapon id`.
 
 - The `amount to load` can be either a positive or negative integer. A positive integer will reload ammo into the specified `weapon id`, while a negative integer will unload the specified amount.
-- The `bulk ammo id` is the id of the ammo that the weapon uses.
-- The `weapon ammo id` is optional, and is the id of a specific ammo associated with the specific weapon. This should be used in cases where a weapon can have multiple types of ammo loaded at once, such as metal bullets and rubber rounds.
+- The `bulk ammo id` is the `data-reprowid` attribute value of the "bulk" ammo that the weapon uses.
+- The `weapon ammo id` is optional, and is the `data-reprowid` attribute value of a specific ammo associated with the specific weapon. This should be used in cases where a weapon can have multiple types of ammo loaded at once, such as metal bullets and rubber rounds.
 
 #### Shoot ammo
 
@@ -43,7 +43,7 @@ Handles loading and unloading ammo from the weapon associated with the `weapon i
 Handles expending ammo when shooting a weapon.
 
 - The `amount to shoot` must be a positive integer.
-- The `weapon ammo id` is optional, and is the id of a specific ammo associated with the specific weapon. This should be used in cases where a weapon can have multiple types of ammo loaded at once, such as metal bullets and rubber rounds.
+- The `weapon ammo id` is optional, and is the `data-reprowid` attribute value of a specific ammo associated with a specific weapon. This should be used in cases where a weapon can have multiple types of ammo loaded at once, such as metal bullets and rubber rounds.
 
 #### Ammo status
 
@@ -51,4 +51,14 @@ Handles expending ammo when shooting a weapon.
 
 Handles displaying the status of the specified weapon.
 
-The `space separated list of ammo ids` is optional, but must be a list of ids that are associated with the specified weapon. When omitted, only the weapon name + character name, current uses, and max uses will be displayed.
+The `space separated list of ammo ids` is optional, but must be a list of `data-reprowid` attribute values that are associated with the specified weapon. When omitted, only the weapon name + character name, current uses, and max uses will be displayed.
+
+### Tricks
+
+`!lotagunslingertricks [character id] [repeating utility id] [repeating classfeature id]`
+
+Handles expending a superiority dice for Gunslinger tricks.
+
+The `repeating utility id` must be the `data-reprowid` attribute value that is associated with the superiority die, which must be entered in the "Utility" section of the character sheet.
+
+The `repeating classfeature id]` must be the `data-reprowid` attribute value that is associated with the particular trick, which must be entered in the "Class features" section of the character sheet. If the trick has a limited number of uses - such as from the "Sly" option of the Gunslinger's "Lucky Item" class feature - passing the classfeature id will also handle updating the trick usage and conditionally expending superiority dice if the trick has more than 0 uses remaining.

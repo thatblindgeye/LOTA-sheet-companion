@@ -2,9 +2,11 @@
  * LOTA sheet companion
  *
  * Version 1.0
- * Last updated: January 9, 2024
+ * Last updated: March 3, 2024
  * Author: thatblindgeye
  * GitHub: https://github.com/thatblindgeye
+ *
+ * Syntax: !scriptName characterId commandArgs
  *
  */
 
@@ -12,7 +14,6 @@ const LOTASheetCompanion = (function () {
   'use strict';
 
   const LOTASC_DISPLAY_NAME = 'LOTA-SC';
-
   const DIE_SIZES = [4, 6, 8, 10, 12, 20];
 
   function sendMessage(
@@ -22,6 +23,58 @@ const LOTASheetCompanion = (function () {
   ) {
     sendChat(LOTASC_DISPLAY_NAME, messageToSend, messageCallback, {
       noarchive,
+    });
+  }
+
+  function getClassLevels(characterId, className) {
+    const [classLevels] = MiscScripts.getCharacterAttr(characterId, [
+      `class_and_level`,
+    ]);
+
+    const classRegex = new RegExp(`${className} (\\d+)`, 'i');
+
+    return parseInt(classLevels.match(classRegex)?.[1]);
+  }
+
+  function updateRepeatingUses(
+    repeatingItemObject,
+    characterName,
+    characterId
+  ) {
+    const {
+      repeatingItemId,
+      repeatingItemUses,
+      repeatingItemMax,
+      repeatingItemName,
+      changeAmount,
+    } = repeatingItemObject;
+
+    if (isNaN(changeAmount) || changeAmount === 0) {
+      throw new Error(
+        `<code>${amount}</code> is not a valid amount to expend. The amount must be a positive or negative integer, and cannot be 0.`
+      );
+    }
+    if (repeatingItemUses === 0 && changeAmount < 0) {
+      throw new Error(
+        `${characterName} does not have any uses of ${repeatingItemName} to expend.`
+      );
+    }
+    if (
+      changeAmount > 0 &&
+      repeatingItemUses + changeAmount > repeatingItemMax
+    ) {
+      throw new Error(
+        `Cannot replenish ${changeAmount} use(s) of ${repeatingItemName} as it would exceed the maximum amount of ${repeatingItemMax}.`
+      );
+    }
+    if (changeAmount < 0 && repeatingItemUses + changeAmount < 0) {
+      throw new Error(
+        `Cannot expend ${changeAmount} use(s) of ${repeatingItemName} as ${characterName} only has ${repeatingItemUses} use(s) available.`
+      );
+    }
+
+    setAttrs(characterId, {
+      [`${repeatingItemId}uses`]: repeatingItemUses + changeAmount,
     });
   }
 
@@ -43,9 +96,8 @@ const LOTASheetCompanion = (function () {
     return characterHitDice;
   }
 
-  /** !lotahd Script */
-
-  function hitDieScript(argsArray, characterName, characterId) {
+  // Update to allow physical roll input
+  function expendHitDie(argsArray, characterName, characterId) {
     const [currentHP, maxHP, maxReducedHP] = MiscScripts.getCharacterAttr(
       characterId,
       [
@@ -131,8 +183,6 @@ const LOTASheetCompanion = (function () {
     );
   }
 
-  /** !lotagunslinger Script */
-
   const getAmmoAttrs = (ammoId, characterId) => {
     const ammoAttrString = `repeating_ammo_${ammoId}_`;
     const ammoUsesString = `${ammoAttrString}uses`;
@@ -154,7 +204,7 @@ const LOTASheetCompanion = (function () {
     };
   };
 
-  function gunslingerAmmoScript(argsArray, characterName, characterId) {
+  function gunslingerHandleAmmo(argsArray, characterName, characterId) {
     const [command, weaponId, ...args] = argsArray;
     const weaponAttrString = `repeating_offense_${weaponId}_`;
     const [weaponName, weaponUses, weaponMaxUses] =
@@ -291,10 +341,69 @@ const LOTASheetCompanion = (function () {
     }
   }
 
+  function gunslingerUseTrick(commandArgs, characterName, characterId) {
+    const gunslingerLevel = getClassLevels(characterId, 'gunslinger');
+
+    if (!gunslingerLevel) {
+      throw new Error(
+        `${characterName} does not have any levels in the Gunslinger class.`
+      );
+    }
+    if (gunslingerLevel && gunslingerLevel < 3) {
+      throw new Error(
+        `${characterName} must have at least 3 levels in the Gunslinger class to use tricks.`
+      );
+    }
+
+    const [superiorityDieItemId, trickFeatureItemId] = commandArgs;
+    const trickFeatureRepRowId = `repeating_classfeature_${trickFeatureItemId}_`;
+    const [trickFeatureUses, trickFeatureMax, trickFeatureName] =
+      MiscScripts.getCharacterAttr(characterId, [
+        { name: `${trickFeatureRepRowId}uses`, parseInt: true },
+        { name: `${trickFeatureRepRowId}uses`, parseInt: true, value: 'max' },
+        `${trickFeatureRepRowId}name`,
+      ]);
+
+    if (!_.isNaN(trickFeatureUses) && !_.isNaN(trickFeatureMax)) {
+      const trickFeatureObject = {
+        repeatingItemId: trickFeatureRepRowId,
+        repeatingItemUses: trickFeatureUses,
+        repeatingItemMax: trickFeatureMax,
+        repeatingItemName: trickFeatureName,
+        changeAmount: -1,
+      };
+
+      updateRepeatingUses(trickFeatureObject, characterName, characterId);
+    }
+
+    const superiorityDieRepRowId = `repeating_utility_${superiorityDieItemId}_`;
+    const [superiorityDieUses, superiorityDieMax, superiorityDieName] =
+      MiscScripts.getCharacterAttr(characterId, [
+        { name: `${superiorityDieRepRowId}uses`, parseInt: true },
+        { name: `${superiorityDieRepRowId}uses`, parseInt: true, value: 'max' },
+        `${superiorityDieRepRowId}name`,
+      ]);
+    const superiorityDieObject = {
+      repeatingItemId: superiorityDieRepRowId,
+      repeatingItemUses: superiorityDieUses,
+      repeatingItemMax: superiorityDieMax,
+      repeatingItemName: superiorityDieName,
+      changeAmount: -1,
+    };
+    updateRepeatingUses(superiorityDieObject, characterName, characterId);
+
+    const superiorityDieSize =
+      gunslingerLevel > 16 ? 'd12' : gunslingerLevel > 8 ? 'd10' : 'd8';
+
+    sendMessage(
+      `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} | ${trickFeatureName}}} {{content=**Result:** [[1${superiorityDieSize}]]}}`
+    );
+  }
+
   function handleChatInput(message) {
     if (
       message.type !== 'api' ||
-      !/^!lota(gunslinger|hd)?/i.test(message.content)
+      !/^!lota(gunslinger|hd|bender)?/i.test(message.content)
     ) {
       return;
     }
@@ -317,12 +426,16 @@ const LOTASheetCompanion = (function () {
         );
       }
 
-      if (/^!lotahd/i.test(messageContent)) {
-        hitDieScript(commandArgs, characterName, character.id);
-      }
-
-      if (/^!lotagunslingerammo/i.test(messageContent)) {
-        gunslingerAmmoScript(commandArgs, characterName, character.id);
+      switch (scriptName.toLowerCase()) {
+        case '!lotahd':
+          expendHitDie(commandArgs, characterName, character.id);
+          break;
+        case '!lotagunslingerammo':
+          gunslingerHandleAmmo(commandArgs, characterName, character.id);
+          break;
+        case '!lotagunslingertricks':
+          gunslingerUseTrick(commandArgs, characterName, character.id);
+          break;
       }
     } catch (error) {
       sendMessage(`/w "${message.who.replace(' (GM)', '')}" ${error.message}`);
