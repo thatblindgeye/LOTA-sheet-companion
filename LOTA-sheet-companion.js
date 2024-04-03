@@ -17,23 +17,34 @@ const LOTASheetCompanion = (function () {
   const DIE_SIZES = [4, 6, 8, 10, 12, 20];
 
   function sendMessage(
-    messageToSend,
+    messageDetailsObject,
     messageCallback = null,
     noarchive = true
   ) {
-    sendChat(LOTASC_DISPLAY_NAME, messageToSend, messageCallback, {
-      noarchive,
-    });
+    sendChat(
+      messageDetailsObject.sendAs || LOTASC_DISPLAY_NAME,
+      messageDetailsObject.messageToSend,
+      messageCallback,
+      {
+        noarchive,
+      }
+    );
   }
 
-  function getClassLevels(characterId, className) {
+  function getClassLevels(characterId, classLevelsToGet) {
     const [classLevels] = MiscScripts.getCharacterAttr(characterId, [
       `class_and_level`,
     ]);
 
-    const classRegex = new RegExp(`${className} (\\d+)`, 'i');
+    if (typeof classLevelsToGet === 'string') {
+      const classRegex = new RegExp(`${classLevelsToGet} (\\d+)`, 'i');
+      return parseInt(classLevels.match(classRegex)?.[1]);
+    }
 
-    return parseInt(classLevels.match(classRegex)?.[1]);
+    return classLevelsToGet.map((className) => {
+      const classRegex = new RegExp(`${className} (\\d+)`, 'i');
+      return parseInt(classLevels.match(classRegex)?.[1]);
+    });
   }
 
   function updateRepeatingUses(
@@ -96,7 +107,7 @@ const LOTASheetCompanion = (function () {
     return characterHitDice;
   }
 
-  // Update to allow physical roll input
+  // TODO: Update to allow physical roll input
   function expendHitDie(argsArray, characterName, characterId) {
     const [currentHP, maxHP, maxReducedHP] = MiscScripts.getCharacterAttr(
       characterId,
@@ -151,9 +162,11 @@ const LOTASheetCompanion = (function () {
       );
     }
     sendMessage(
-      `[[${amountToExpend}${hitDieTypeToExpend}r<${
-        hitDieTypeToExpend.slice(1) / 2
-      } + ${amountToExpend * (characterConMod < 0 ? 0 : characterConMod)}]]`,
+      {
+        messageToSend: `[[${amountToExpend}${hitDieTypeToExpend}r<${
+          hitDieTypeToExpend.slice(1) / 2
+        } + ${amountToExpend * (characterConMod < 0 ? 0 : characterConMod)}]]`,
+      },
       (ops) => {
         const { expression: rollExpression, results } = ops[0].inlinerolls[0];
         const newHP = currentHP + parseInt(results.total);
@@ -166,9 +179,10 @@ const LOTASheetCompanion = (function () {
 
         const totalHitDiceKeys = Object.keys(totalHitDice);
 
-        sendMessage(`&{template:5e-shaped} {{title=${amountToExpend}${hitDieTypeToExpend} Hit Dice for ${characterName}}} {{roll1=[[${
-          results.total
-        } [${rollExpression}]]]}} {{content=**New HP:** ${trueNewHP} / ${trueMaxHP}
+        sendMessage({
+          messageToSend: `&{template:5e-shaped} {{title=${amountToExpend}${hitDieTypeToExpend} Hit Dice for ${characterName}}} {{roll1=[[${
+            results.total
+          } [${rollExpression}]]]}} {{content=**New HP:** ${trueNewHP} / ${trueMaxHP}
         **Remaining Hit Dice:**
         <ul>${_.map(
           totalHitDiceKeys,
@@ -178,7 +192,8 @@ const LOTASheetCompanion = (function () {
                 ? `${newHitDieAmount}${hitDieKey}`
                 : `${totalHitDice[hitDieKey]}${hitDieKey}`
             }</li>`
-        ).join('')}</ul>}}`);
+        ).join('')}</ul>}}`,
+        });
       }
     );
   }
@@ -279,13 +294,13 @@ const LOTASheetCompanion = (function () {
         }
 
         setAttrs(characterId, attrsToSet);
-        sendMessage(
-          `/w "${characterName}" ${characterName} ${
+        sendMessage({
+          messageToSend: `/w "${characterName}" ${characterName} ${
             isPositiveAmount
               ? `reloaded ${amountToReload} ${bulkAmmoUsesName} into`
               : `unloaded ${amountToReload * -1} ${bulkAmmoUsesName} from`
-          } the ${weaponName}`
-        );
+          } the ${weaponName}`,
+        });
         break;
       case 'shoot':
         const amountToShoot = parseInt(args[0]);
@@ -330,9 +345,9 @@ const LOTASheetCompanion = (function () {
           ? `{{content=<ul>${weaponAmmoStatusArray.join('')}</ul>}}`
           : '';
 
-        sendMessage(
-          `/w "${characterName}" &{template:5e-shaped} {{title=${weaponName} - ${characterName} (${weaponUses} / ${weaponMaxUses})}} ${weaponAmmoStatusString}`
-        );
+        sendMessage({
+          messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${weaponName} - ${characterName} (${weaponUses} / ${weaponMaxUses})}} ${weaponAmmoStatusString}`,
+        });
         break;
       default:
         throw new Error(
@@ -395,9 +410,148 @@ const LOTASheetCompanion = (function () {
     const superiorityDieSize =
       gunslingerLevel > 16 ? 'd12' : gunslingerLevel > 8 ? 'd10' : 'd8';
 
-    sendMessage(
-      `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} | ${trickFeatureName}}} {{content=**Result:** [[1${superiorityDieSize}]]}}`
+    sendMessage({
+      messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} | ${trickFeatureName}}} {{content=**Result:** [[1${superiorityDieSize}]]\n**Superiority Dice Remaining:** ${
+        superiorityDieUses - 1
+      }}}`,
+    });
+  }
+
+  function benderPerformTechnique(commandArgs, characterName, characterId) {
+    const [benderLevel, avatarLevel] = getClassLevels(characterId, [
+      'bender',
+      'avatar',
+    ]);
+
+    if ([benderLevel, avatarLevel].every((level) => _.isNaN(level))) {
+      throw new Error(
+        `${characterName} must have at least 1 level in a bender class in order to perform techniques.`
+      );
+    }
+
+    const [techniqueId, enhancedArg] = commandArgs;
+    const isEnhanced = enhancedArg.toLowerCase() === 'true';
+
+    const techniqueRepRowId = `repeating_${techniqueId}_`;
+    const techniqueLevel = parseInt(techniqueId.match(/^spell(\d)/)[1]);
+    const [chiPointsCurrent, baseTechniqueCost, techniqueName] =
+      MiscScripts.getCharacterAttr(characterId, [
+        { name: `spell_points`, parseInt: true },
+        {
+          name: `spell_level_${techniqueLevel}_cost`,
+          parseInt: true,
+        },
+        { name: `${techniqueRepRowId}name` },
+      ]);
+
+    // Cantrips have no point cost, so a fallback of 0 is needed
+    const adjustedBaseCost = baseTechniqueCost || 0;
+    const totalChiCost = isEnhanced ? adjustedBaseCost + 2 : adjustedBaseCost;
+    const newTotalChiPoints = chiPointsCurrent - totalChiCost;
+
+    if (newTotalChiPoints < 0 && benderLevel >= 7) {
+      // TODO: Insert logic for Push It feature here?
+    }
+
+    if (newTotalChiPoints < 0) {
+      throw new Error(
+        `${characterName} cannot perform the ${techniqueName} technique ${
+          isEnhanced ? 'with its enhanced effect' : ''
+        } as it would cost ${totalChiCost} chi points, and ${characterName} only has ${chiPointsCurrent} available.`
+      );
+    }
+
+    const areChiPointsChanged = newTotalChiPoints !== chiPointsCurrent;
+    if (areChiPointsChanged) {
+      setAttrs(characterId, {
+        [`spell_points`]: chiPointsCurrent - totalChiCost,
+      });
+    }
+    sendMessage({
+      sendAs: characterName,
+      messageToSend: `/em performed the ${techniqueName} technique${
+        areChiPointsChanged
+          ? `, and has ${newTotalChiPoints} chi points remaining`
+          : ''
+      }!`,
+    });
+  }
+
+  function benderUseSpecialization(commandArgs, characterName, characterId) {
+    const [specializationId, chiCost] = commandArgs;
+    const parsedChiCost = parseInt(chiCost);
+    const specializationRepRowId = `repeating_spell4_${specializationId}_`;
+    const [specializationUses, specializationName, chiPointsCurrent] =
+      MiscScripts.getCharacterAttr(characterId, [
+        { name: `${specializationRepRowId}uses`, parseInt: true },
+        { name: `${specializationRepRowId}name` },
+        { name: `spell_points`, parseInt: true },
+      ]);
+
+    if (
+      !specializationUses &&
+      (!chiPointsCurrent || chiPointsCurrent - parsedChiCost < 0)
+    ) {
+      throw new Error(
+        `${characterName} cannot use the ${specializationName} specialization as they have no remaining uses of it, and only have ${chiPointsCurrent} chi points (requires ${chiCost}).`
+      );
+    }
+
+    const attrToUpdate = !specializationUses
+      ? 'spell_points'
+      : `${specializationRepRowId}uses`;
+    const newAttrValue = !specializationUses
+      ? chiPointsCurrent - parsedChiCost
+      : specializationUses - 1;
+
+    setAttrs(characterId, {
+      [attrToUpdate]: newAttrValue,
+    });
+    sendMessage({
+      sendAs: characterName,
+      messageToSend: `/em used the ${specializationName} specialization, and has ${newAttrValue} ${
+        !specializationUses
+          ? 'chi points remaining!'
+          : 'uses remaining (must expend chi points on subsequent uses)!'
+      }`,
+    });
+  }
+
+  function benderChiRecovery(commandArgs, characterName, characterId) {
+    const [chiRecoveryId] = commandArgs;
+    const chiRecoveryRepId = `repeating_classfeature_${chiRecoveryId}_`;
+
+    const [chiRecoveryUses, chiPointsCurrent, chiPointsMax, proficiencyBonus] =
+      MiscScripts.getCharacterAttr(characterId, [
+        { name: `${chiRecoveryRepId}uses`, parseInt: true },
+        { name: `spell_points`, parseInt: true },
+        { name: `spell_points`, parseInt: true, value: 'max' },
+        { name: `pb`, parseInt: true },
+      ]);
+
+    if (!chiRecoveryUses) {
+      throw new Error(
+        `${characterName} has no more uses of their Chi Recovery feature.`
+      );
+    }
+    if (chiPointsCurrent === chiPointsMax) {
+      throw new Error(
+        `${characterName} is already at max chi points and cannot recover any more.`
+      );
+    }
+
+    const newTotalChiPoints = Math.min(
+      chiPointsMax,
+      chiPointsCurrent + proficiencyBonus
     );
+    setAttrs(characterId, {
+      ['spell_points']: newTotalChiPoints,
+      [`${chiRecoveryRepId}uses`]: chiRecoveryUses - 1,
+    });
+    sendMessage({
+      sendAs: characterName,
+      messageToSend: `/em used their Chi Recovery and now has ${newTotalChiPoints}/${chiPointsMax} chi points!`,
+    });
   }
 
   function handleChatInput(message) {
@@ -410,8 +564,8 @@ const LOTASheetCompanion = (function () {
 
     try {
       const { content: messageContent, playerid } = message;
-      const [scriptName, characterId, ...commandArgs] =
-        messageContent.split(' ');
+      const [scriptName, ...commandArgs] = messageContent.split(' ');
+      const [characterId, ...restArgs] = commandArgs;
       const character = getObj('character', characterId);
       const characterName = character.get('name');
 
@@ -420,7 +574,7 @@ const LOTASheetCompanion = (function () {
           `You do not control character <code>${characterName}</code>. You can only use the LOTA sheet companion commands on characters you control.`
         );
       }
-      if (!commandArgs.length) {
+      if (!restArgs.length) {
         throw new Error(
           `No arguments were passed to the <code>${scriptName}</code> script.`
         );
@@ -428,17 +582,30 @@ const LOTASheetCompanion = (function () {
 
       switch (scriptName.toLowerCase()) {
         case '!lotahd':
-          expendHitDie(commandArgs, characterName, character.id);
+          expendHitDie(restArgs, characterName, character.id);
           break;
         case '!lotagunslingerammo':
-          gunslingerHandleAmmo(commandArgs, characterName, character.id);
+          gunslingerHandleAmmo(restArgs, characterName, character.id);
           break;
         case '!lotagunslingertricks':
-          gunslingerUseTrick(commandArgs, characterName, character.id);
+          gunslingerUseTrick(restArgs, characterName, character.id);
+          break;
+        case '!lotabendertechnique':
+          benderPerformTechnique(restArgs, characterName, character.id);
+          break;
+        case '!lotabenderspecialization':
+          benderUseSpecialization(restArgs, characterName, character.id);
+          break;
+        case '!lotabenderchirecovery':
+          benderChiRecovery(restArgs, characterName, character.id);
           break;
       }
     } catch (error) {
-      sendMessage(`/w "${message.who.replace(' (GM)', '')}" ${error.message}`);
+      sendMessage({
+        messageToSend: `/w "${message.who.replace(' (GM)', '')}" ${
+          error.message
+        }`,
+      });
     }
   }
 
