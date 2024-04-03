@@ -554,6 +554,134 @@ const LOTASheetCompanion = (function () {
     });
   }
 
+  const CLASSES = {
+    allCharacters: 'All characters',
+    benders: 'Benders',
+    gunslingers: 'Gunslingers',
+  };
+  const gainsOnLevelUp = {
+    [CLASSES.allCharacters]: {},
+    [CLASSES.benders]: {
+      2: [
+        'Gain the "Chi Recovery" feature.',
+        'Learn 2 Novice level techniques.',
+      ],
+      3: ['Choose a Jing Path.', 'Learn 1 Novice level technique.'],
+      4: ['Choose either an ASI, feat, or bending specialization.'],
+      5: [
+        'Gain the "Enhanced Techniques" feature.',
+        'Increase base *elemental blast* damage by 1d8.',
+        'Learn 1 Novice level technique.',
+      ],
+      6: ['Gain a Jing Path feature.'],
+      7: ['Gain the "Push It" feature.', 'Learn 1 Novice level technique.'],
+      8: ['Choose either an ASI, feat, or bending specialization.'],
+      9: [
+        'Gain the "Concentrated Chi" feature',
+        'Increase base *elemental blast* damage by 1d8.',
+        'Learn 1 Novice or Advanced level technique.',
+      ],
+      10: ['Gain a Jing Path feature.'],
+      11: ['Learn 1 Novice or Advanced level technique.'],
+      12: ['Choose either an ASI, feat, or bending specialization.'],
+      13: [
+        'Gain the "Improved Push It" feature.',
+        'Learn 1 Novice or Advanced level technique.',
+      ],
+      14: ['Gain a Jing Path feature.'],
+      15: ['Learn 1 Novice or Advanced level technique.'],
+      16: ['Choose either an ASI, feat, or bending specialization.'],
+      17: [
+        'Increase base *elemental blast* damage by 1d8.',
+        'Learn 1 Novice, Advanced, or Master level technique.',
+      ],
+      18: ['Gain a Jing Path feature.'],
+      19: [
+        'Choose either an ASI, feat, or bending specialization.',
+        'Learn 1 Novice or Advanced level technique.',
+      ],
+      20: ['Gain the "Bending Master" feature.'],
+    },
+    [CLASSES.gunslingers]: {
+      2: ['Choose a Gun Tactic.', 'Gain the "Gun Stunts" feature.'],
+      3: ['Gain the "Lucky Item" feature.', 'Choose a Gunslinging Trail.'],
+      4: ['Choose either an ASI or feat.'],
+      5: ['Gain the "Bulletstorm" feature.'],
+      6: ['Gain a Gunslinging Trail feature.'],
+      7: ['Gain the "Evasion" feature.'],
+      8: ['Choose either an ASI or feat.'],
+      9: ['Gain a Gunslinging Trail feature.'],
+      10: ['Choose another "Lucky Item" benefit and quirk.'],
+      11: ['Gain the "Shootout Sense" feature.'],
+      12: ['Choose either an ASI or feat.'],
+      13: ['Gain a Gunslinging Trail feature.'],
+      14: ['Gain the "Overwatch" feature.'],
+      15: ['Gain the "Final Stand" feature.'],
+      16: ['Choose either an ASI or feat.'],
+      17: ['Gain a Gunslinging Trail feature.'],
+      18: ['Gain the "Superhuman Reflexes" feature.'],
+      19: ['Choose either an ASI or feat.'],
+      20: [
+        'Gain the "Gunslinging Supreme" feature.',
+        'Gain an additional attack with firearms from the "Bulletstorm" feature.',
+      ],
+    },
+  };
+  const manualUpdatesToMake = {
+    [CLASSES.allCharacters]: {
+      1: [
+        'Gain inspiration if you do not currently have it.',
+        'Roll for hit points - add the higher of your roll or the average to the higher of your Constitution modifier or 0.',
+        `Refer to the Legend of the Avatar handbook for features/resources gained at your new level.`,
+      ],
+    },
+    [CLASSES.benders]: {
+      2: ['Update max chi points to equal twice your bender level.'],
+      3: [
+        'Update max uses of the Chi Recovery feature to equal half your proficiency bonus, rounded down.',
+        'Optionally choose a technique known and replace it with another one.',
+      ],
+    },
+    [CLASSES.gunslingers]: [],
+  };
+  function messageOnLevelUp(partyLevel) {
+    if (_.isNaN(partyLevel)) {
+      throw new Error(`<code>${partyLevel}</code> is not a valid party level.`);
+    }
+    let baseMessage = `<div><div style="font-weight: bold; font-size: 1.25rem; border-bottom: 2px solid grey; padding-bottom: 4px; margin-bottom: 16px;">The party has reached level ${partyLevel}!</div>`;
+
+    for (const characterClass in manualUpdatesToMake) {
+      const characterLevels = Object.keys(manualUpdatesToMake[characterClass]);
+      const validLevels = characterLevels.filter(
+        (level) => parseInt(level) <= partyLevel
+      );
+      let classMessage = '';
+
+      for (const level of validLevels) {
+        classMessage += manualUpdatesToMake[characterClass][level]
+          .map((levelItem) => `<li>${levelItem}</li>`)
+          .join('');
+      }
+
+      if (gainsOnLevelUp[characterClass][partyLevel]) {
+        classMessage += gainsOnLevelUp[characterClass][partyLevel]
+          .map((feature) => `<li>${feature}</li>`)
+          .join('');
+      }
+
+      baseMessage += classMessage
+        ? `<div><div style="font-weight: bold;">${characterClass}</div><ul>${classMessage}</ul></div>`
+        : '';
+    }
+
+    sendMessage({ messageToSend: `${baseMessage}</div>` });
+    const track = findObjs({ type: 'jukeboxtrack', title: 'Level Up' })[0];
+    // track properties don't autoset back to false after it has finished playing, so we need to manually set them to false before playing is set to true
+    track.set('playing', false);
+    track.set('softstop', false);
+    track.set('playing', true);
+  }
+
   function handleChatInput(message) {
     if (
       message.type !== 'api' ||
@@ -565,6 +693,12 @@ const LOTASheetCompanion = (function () {
     try {
       const { content: messageContent, playerid } = message;
       const [scriptName, ...commandArgs] = messageContent.split(' ');
+
+      if (scriptName.toLowerCase() === '!lotalevelup') {
+        messageOnLevelUp(parseInt(commandArgs[0]));
+        return;
+      }
+
       const [characterId, ...restArgs] = commandArgs;
       const character = getObj('character', characterId);
       const characterName = character.get('name');
