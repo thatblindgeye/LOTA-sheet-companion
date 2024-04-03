@@ -8,11 +8,13 @@ The following scripts do not pertain to any particular character class, and are 
 
 ### Expend hit die
 
-`!lotahd [characterId] [hitDieToExpend]`
+`!lotahd [characterId] [hitDieToExpend] [physicalDiceRoll]`
 
 Handles expending hit dice, including updating the current hit dice amount, rolling the hit dice, and adding the rolled amount to the character's current hit points. The amount rolled on hit dice will not exceed a character's maximum hit points after any reduction is applied.
 
 The `hitDieToExpend` must be in the format `XdY`, where `X` is the amount of hit die to expend and `Y` is the hit die size, e.g. `1d8`. The amount of hit die to expend must be greater than 0, and the hit die size must be one that the character has access to.
+
+The `physicalRollAmount` is optional, and will override the chat dice rolls.
 
 ### Level up
 

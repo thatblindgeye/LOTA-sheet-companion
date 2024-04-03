@@ -107,7 +107,6 @@ const LOTASheetCompanion = (function () {
     return characterHitDice;
   }
 
-  // TODO: Update to allow physical roll input
   function expendHitDie(argsArray, characterName, characterId) {
     const [currentHP, maxHP, maxReducedHP] = MiscScripts.getCharacterAttr(
       characterId,
@@ -145,9 +144,6 @@ const LOTASheetCompanion = (function () {
     const hitDieAttrName = `hd_${hitDieTypeToExpend}`;
     const totalHitDice = getCharacterHitDice(characterId);
     const currentHitDie = totalHitDice[hitDieTypeToExpend];
-    const [characterConMod] = MiscScripts.getCharacterAttr(characterId, [
-      { name: 'constitution_mod', parseInt: true },
-    ]);
 
     if (currentHitDie === undefined) {
       throw new Error(
@@ -161,6 +157,48 @@ const LOTASheetCompanion = (function () {
         `Cannot expend ${amountToExpend}${hitDieTypeToExpend} hit dice. ${characterName} only has ${currentHitDie}${hitDieTypeToExpend} available to expend.`
       );
     }
+
+    const totalHitDiceKeys = Object.keys(totalHitDice);
+    const createMessageContent = (
+      roll1Content,
+      newHPAmount
+    ) => `&{template:5e-shaped} {{title=${amountToExpend}${hitDieTypeToExpend} Hit Dice for ${characterName}}} {{roll1=${roll1Content}}} {{content=**New HP:** ${newHPAmount} / ${trueMaxHP}
+    **Remaining Hit Dice:**
+    <ul>${_.map(
+      totalHitDiceKeys,
+      (hitDieKey) =>
+        `<li>${
+          hitDieTypeToExpend === hitDieKey
+            ? `${newHitDieAmount}${hitDieKey}`
+            : `${totalHitDice[hitDieKey]}${hitDieKey}`
+        }</li>`
+    ).join('')}</ul>}}`;
+
+    const attrsToSet = { [hitDieAttrName]: newHitDieAmount };
+    const physicalRollAmount = parseInt(argsArray[1]);
+    if (!_.isNaN(physicalRollAmount)) {
+      const newHpFromPhysicalRoll = Math.min(
+        currentHP + physicalRollAmount,
+        trueMaxHP
+      );
+
+      setAttrs(characterId, {
+        ...attrsToSet,
+        hp: newHpFromPhysicalRoll,
+      });
+
+      sendMessage({
+        messageToSend: createMessageContent(
+          `[[${physicalRollAmount}]]`,
+          newHpFromPhysicalRoll
+        ),
+      });
+      return;
+    }
+
+    const [characterConMod] = MiscScripts.getCharacterAttr(characterId, [
+      { name: 'constitution_mod', parseInt: true },
+    ]);
     sendMessage(
       {
         messageToSend: `[[${amountToExpend}${hitDieTypeToExpend}r<${
@@ -169,30 +207,21 @@ const LOTASheetCompanion = (function () {
       },
       (ops) => {
         const { expression: rollExpression, results } = ops[0].inlinerolls[0];
-        const newHP = currentHP + parseInt(results.total);
-        const trueNewHP = newHP > trueMaxHP ? trueMaxHP : newHP;
+        const newHpFromChat = Math.min(
+          currentHP + parseInt(results.total),
+          trueMaxHP
+        );
 
         setAttrs(characterId, {
-          [hitDieAttrName]: newHitDieAmount,
-          hp: trueNewHP,
+          ...attrsToSet,
+          hp: newHpFromChat,
         });
 
-        const totalHitDiceKeys = Object.keys(totalHitDice);
-
         sendMessage({
-          messageToSend: `&{template:5e-shaped} {{title=${amountToExpend}${hitDieTypeToExpend} Hit Dice for ${characterName}}} {{roll1=[[${
-            results.total
-          } [${rollExpression}]]]}} {{content=**New HP:** ${trueNewHP} / ${trueMaxHP}
-        **Remaining Hit Dice:**
-        <ul>${_.map(
-          totalHitDiceKeys,
-          (hitDieKey) =>
-            `<li>${
-              hitDieTypeToExpend === hitDieKey
-                ? `${newHitDieAmount}${hitDieKey}`
-                : `${totalHitDice[hitDieKey]}${hitDieKey}`
-            }</li>`
-        ).join('')}</ul>}}`,
+          messageToSend: createMessageContent(
+            `[[${results.total} [${rollExpression}]]]`,
+            newHpFromChat
+          ),
         });
       }
     );
