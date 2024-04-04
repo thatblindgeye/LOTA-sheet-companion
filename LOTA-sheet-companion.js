@@ -446,6 +446,53 @@ const LOTASheetCompanion = (function () {
     });
   }
 
+  function handleTechniqueDuration(
+    characterName,
+    characterId,
+    techniqueName,
+    techniqueDuration
+  ) {
+    const turnorder = JSON.parse(Campaign().get('turnorder'));
+    if (!turnorder.length) {
+      return;
+    }
+
+    const isOneMinute = /minute/i.test(techniqueDuration);
+    const durationLength = isOneMinute ? 10 : 1;
+    const currentTurnPr = parseFloat(turnorder[0].pr);
+    Durations.addDuration(
+      `${characterName} - ${techniqueName}`,
+      durationLength,
+      currentTurnPr + 0.001
+    );
+
+    const isConcentration = /concentration/i.test(techniqueDuration);
+    if (!isConcentration) {
+      return;
+    }
+    const controlledby = getObj('character', characterId).get('controlledby');
+    const playerId = controlledby.split(',').filter((id) => !playerIsGM(id))[0];
+    const playerPages = Campaign().get('playerspecificpages');
+
+    const tokenPageId =
+      playerPages && playerPages[playerId]
+        ? playerPages[playerId]
+        : Campaign().get('playerpageid');
+    const tokenToUpdate = findObjs({
+      type: 'graphic',
+      name: characterName,
+      pageid: tokenPageId,
+    });
+
+    if (tokenToUpdate.length) {
+      ConditionTracker.updateConditionInstances(
+        'add',
+        'concentrating--1',
+        tokenToUpdate
+      );
+    }
+  }
+
   function benderPerformTechnique(commandArgs, characterName, characterId) {
     const [benderLevel, avatarLevel] = getClassLevels(characterId, [
       'bender',
@@ -463,15 +510,24 @@ const LOTASheetCompanion = (function () {
 
     const techniqueRepRowId = `repeating_${techniqueId}_`;
     const techniqueLevel = parseInt(techniqueId.match(/^spell(\d)/)[1]);
-    const [chiPointsCurrent, baseTechniqueCost, techniqueName] =
-      MiscScripts.getCharacterAttr(characterId, [
-        { name: `spell_points`, parseInt: true },
-        {
-          name: `spell_level_${techniqueLevel}_cost`,
-          parseInt: true,
-        },
-        { name: `${techniqueRepRowId}name` },
-      ]);
+    const attrsToGet = [
+      { name: `spell_points`, parseInt: true },
+      { name: `${techniqueRepRowId}name` },
+      { name: `${techniqueRepRowId}duration` },
+    ];
+
+    if (techniqueLevel > 0) {
+      attrsToGet.push({
+        name: `spell_level_${techniqueLevel}_cost`,
+        parseInt: true,
+      });
+    }
+    const [
+      chiPointsCurrent,
+      techniqueName,
+      techniqueDuration,
+      baseTechniqueCost,
+    ] = MiscScripts.getCharacterAttr(characterId, attrsToGet);
 
     // Cantrips have no point cost, so a fallback of 0 is needed
     const adjustedBaseCost = baseTechniqueCost || 0;
@@ -493,7 +549,7 @@ const LOTASheetCompanion = (function () {
     const areChiPointsChanged = newTotalChiPoints !== chiPointsCurrent;
     if (areChiPointsChanged) {
       setAttrs(characterId, {
-        [`spell_points`]: chiPointsCurrent - totalChiCost,
+        [`spell_points`]: newTotalChiPoints,
       });
     }
     sendMessage({
@@ -504,6 +560,15 @@ const LOTASheetCompanion = (function () {
           : ''
       }!`,
     });
+
+    if (/1_(round|minute)/i.test(techniqueDuration)) {
+      handleTechniqueDuration(
+        characterName,
+        characterId,
+        techniqueName,
+        techniqueDuration
+      );
+    }
   }
 
   function benderUseSpecialization(commandArgs, characterName, characterId) {
