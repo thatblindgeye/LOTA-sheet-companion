@@ -493,6 +493,22 @@ const LOTASheetCompanion = (function () {
     }
   }
 
+  function calculateTotalChiCost(baseCost, isEnhanced, characterId) {
+    // Cantrips have no point cost, so a fallback of 0 is needed
+    const baseChiCost = baseCost || 0;
+    const enhancedCost = isEnhanced ? 2 : 0;
+    const [waterbenderLevel] = getClassLevels(characterId, ['waterbender']);
+    if (waterbenderLevel && baseChiCost && ATLACalendar) {
+      const { app } = ATLACalendar;
+      const currentDay = app.date.date.day;
+      const moonPhase = app.getMoonPhase(currentDay);
+      return (
+        baseChiCost / (/full moon/i.test(moonPhase) ? 2 : 1) + enhancedCost
+      );
+    }
+    return baseChiCost + enhancedCost;
+  }
+
   function benderPerformTechnique(commandArgs, characterName, characterId) {
     const [benderLevel, avatarLevel] = getClassLevels(characterId, [
       'bender',
@@ -529,9 +545,11 @@ const LOTASheetCompanion = (function () {
       baseTechniqueCost,
     ] = MiscScripts.getCharacterAttr(characterId, attrsToGet);
 
-    // Cantrips have no point cost, so a fallback of 0 is needed
-    const adjustedBaseCost = baseTechniqueCost || 0;
-    const totalChiCost = isEnhanced ? adjustedBaseCost + 2 : adjustedBaseCost;
+    const totalChiCost = calculateTotalChiCost(
+      baseTechniqueCost,
+      isEnhanced,
+      characterId
+    );
     const newTotalChiPoints = chiPointsCurrent - totalChiCost;
 
     if (newTotalChiPoints < 0 && benderLevel >= 7) {
