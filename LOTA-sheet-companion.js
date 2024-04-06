@@ -2,7 +2,7 @@
  * LOTA sheet companion
  *
  * Version 1.0
- * Last updated: March 3, 2024
+ * Last updated: March 6, 2024
  * Author: thatblindgeye
  * GitHub: https://github.com/thatblindgeye
  *
@@ -385,7 +385,11 @@ const LOTASheetCompanion = (function () {
     }
   }
 
-  function gunslingerUseTrick(commandArgs, characterName, characterId) {
+  function gunslingerUseSuperiorityDie(
+    commandArgs,
+    characterName,
+    characterId
+  ) {
     const gunslingerLevel = getClassLevels(characterId, 'gunslinger');
 
     if (!gunslingerLevel) {
@@ -399,21 +403,21 @@ const LOTASheetCompanion = (function () {
       );
     }
 
-    const [superiorityDieItemId, trickFeatureItemId] = commandArgs;
-    const trickFeatureRepRowId = `repeating_classfeature_${trickFeatureItemId}_`;
-    const [trickFeatureUses, trickFeatureMax, trickFeatureName] =
+    const [superiorityDieItemId, classFeatureId] = commandArgs;
+    const classFeatureRepRowId = `repeating_classfeature_${classFeatureId}_`;
+    const [classFeatureUses, classFeatureMax, classFeatureName] =
       MiscScripts.getCharacterAttr(characterId, [
-        { name: `${trickFeatureRepRowId}uses`, parseInt: true },
-        { name: `${trickFeatureRepRowId}uses`, parseInt: true, value: 'max' },
-        `${trickFeatureRepRowId}name`,
+        { name: `${classFeatureRepRowId}uses`, parseInt: true },
+        { name: `${classFeatureRepRowId}uses`, parseInt: true, value: 'max' },
+        `${classFeatureRepRowId}name`,
       ]);
 
-    if (!_.isNaN(trickFeatureUses) && !_.isNaN(trickFeatureMax)) {
+    if (!_.isNaN(classFeatureUses) && !_.isNaN(classFeatureMax)) {
       const trickFeatureObject = {
-        repeatingItemId: trickFeatureRepRowId,
-        repeatingItemUses: trickFeatureUses,
-        repeatingItemMax: trickFeatureMax,
-        repeatingItemName: trickFeatureName,
+        repeatingItemId: classFeatureRepRowId,
+        repeatingItemUses: classFeatureUses,
+        repeatingItemMax: classFeatureMax,
+        repeatingItemName: classFeatureName,
         changeAmount: -1,
       };
 
@@ -438,9 +442,12 @@ const LOTASheetCompanion = (function () {
 
     const superiorityDieSize =
       gunslingerLevel > 16 ? 'd12' : gunslingerLevel > 8 ? 'd10' : 'd8';
+    const rollResult = `[[1${superiorityDieSize}${
+      /fast (and|&) low/i.test(classFeatureName) ? ' * 5]] feet' : ']]'
+    }`;
 
     sendMessage({
-      messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} | ${trickFeatureName}}} {{content=**Result:** [[1${superiorityDieSize}]]\n**Superiority Dice Remaining:** ${
+      messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} | ${classFeatureName}}} {{content=**Result:** ${rollResult}\n**Superiority Dice Remaining:** ${
         superiorityDieUses - 1
       }}}`,
     });
@@ -833,8 +840,8 @@ const LOTASheetCompanion = (function () {
         case '!lotagunslingerammo':
           gunslingerHandleAmmo(restArgs, characterName, character.id);
           break;
-        case '!lotagunslingertricks':
-          gunslingerUseTrick(restArgs, characterName, character.id);
+        case '!lotagunslingersuperiority':
+          gunslingerUseSuperiorityDie(restArgs, characterName, character.id);
           break;
         case '!lotabendertechnique':
           benderPerformTechnique(restArgs, characterName, character.id);
