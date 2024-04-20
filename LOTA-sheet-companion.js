@@ -16,6 +16,21 @@ const LOTASheetCompanion = (function () {
   const LOTASC_DISPLAY_NAME = 'LOTA-SC';
   const DIE_SIZES = [4, 6, 8, 10, 12, 20];
 
+  function styleInlineRolls(roll, critSuccessThreshold, critFailThreshold) {
+    const rollWrapper = _.template(
+      `<span style="border: 3px solid <%= borderColor %>; display: inline-block; padding: 4px 2px; margin-bottom: 4px;">${roll.expression}</span>`
+    );
+
+    if (roll.result >= critSuccessThreshold) {
+      return rollWrapper({ borderColor: 'green' });
+    }
+    if (roll.result <= critFailThreshold) {
+      return rollWrapper({ borderColor: 'red' });
+    }
+
+    return rollWrapper({ borderColor: 'transparent' });
+  }
+
   function sendMessage(
     messageDetailsObject,
     messageCallback = null,
@@ -248,6 +263,47 @@ const LOTASheetCompanion = (function () {
     };
   };
 
+  function gunslingerAmmoStatus(characterId, weaponInfo, ammoIds) {
+    let weaponName = '';
+    let weaponUses = '';
+    let weaponMaxUses = '';
+
+    if (typeof weaponInfo === 'string') {
+      const weaponAttrString = `repeating_offense_${weaponInfo}_`;
+      [weaponName, weaponUses, weaponMaxUses] = MiscScripts.getCharacterAttr(
+        characterId,
+        [
+          `${weaponAttrString}name`,
+          { name: `${weaponAttrString}uses`, parseInt: true },
+          { name: `${weaponAttrString}uses`, parseInt: true, value: 'max' },
+        ]
+      );
+    } else {
+      const { name, uses, maxUses } = weaponInfo;
+      weaponName = name;
+      weaponUses = uses;
+      weaponMaxUses = maxUses;
+    }
+    const weaponAmmoStatusArray = ammoIds.length
+      ? _.map(ammoIds, (ammoId) => {
+          const { ammoUsesValue, ammoUsesName } = getAmmoAttrs(
+            ammoId,
+            characterId
+          );
+
+          return `<li>${ammoUsesValue}x ${ammoUsesName}</li>`;
+        })
+      : [];
+    const weaponAmmoStatusList = weaponAmmoStatusArray.length
+      ? `<ul>${weaponAmmoStatusArray.join('')}</ul>`
+      : '';
+
+    return {
+      title: `${weaponName} (${weaponUses} / ${weaponMaxUses}`,
+      content: weaponAmmoStatusList,
+    };
+  }
+
   function gunslingerHandleAmmo(argsArray, characterName, characterId) {
     const [command, weaponId, ...args] = argsArray;
     const weaponAttrString = `repeating_offense_${weaponId}_`;
@@ -339,6 +395,11 @@ const LOTASheetCompanion = (function () {
             `The amount of ammunition to shoot must be an integer greater than 0.`
           );
         }
+        if (weaponUses - amountToShoot < 0) {
+          throw new Error(
+            `Cannot shoot ${amountToShoot} ammo as ${weaponName} only has ${weaponUses} ammo loaded.`
+          );
+        }
         attrsToSet[`${weaponAttrString}uses`] = weaponUses - amountToShoot;
 
         const {
@@ -360,22 +421,14 @@ const LOTASheetCompanion = (function () {
         setAttrs(characterId, attrsToSet);
         break;
       case 'status':
-        const weaponAmmoStatusArray = args.length
-          ? _.map(args, (arg) => {
-              const { ammoUsesValue, ammoUsesName } = getAmmoAttrs(
-                arg,
-                characterId
-              );
-
-              return `<li>${ammoUsesValue}x ${ammoUsesName}</li>`;
-            })
-          : [];
-        const weaponAmmoStatusString = weaponAmmoStatusArray.length
-          ? `{{content=<ul>${weaponAmmoStatusArray.join('')}</ul>}}`
-          : '';
+        const ammoStatusInfo = gunslingerAmmoStatus(
+          characterId,
+          { name: weaponName, uses: weaponUses, maxUses: weaponMaxUses },
+          args
+        );
 
         sendMessage({
-          messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${weaponName} - ${characterName} (${weaponUses} / ${weaponMaxUses})}} ${weaponAmmoStatusString}`,
+          messageToSend: `/w "${characterName}" &{template:5e-shaped} {{title=${characterName} - ${ammoStatusInfo.title})}} {{content=${ammoStatusInfo.content}}}`,
         });
         break;
       default:
@@ -383,6 +436,115 @@ const LOTASheetCompanion = (function () {
           `<code>${command}</code> is not a valid command for the lotagunslinger script. The command must be either <code>reload</code>, <code>shoot</code>, or <code>status</code>.`
         );
     }
+  }
+
+  const GUNSLINGER_ATTACK_TYPES = {
+    normal: 'normalshot',
+    analytical: 'analyticalshot',
+    stockStrike: 'stockstrike',
+  };
+  function gunslingerHandleFirearmAttack(
+    argsArray,
+    characterName,
+    characterId
+  ) {
+    const [weaponId, attackType, misfireThreshold, amountToShoot, ...ammoIds] =
+      argsArray;
+    const lowercasedAttackType = attackType.toLowerCase();
+    if (
+      !Object.values(GUNSLINGER_ATTACK_TYPES).includes(lowercasedAttackType)
+    ) {
+      throw new Error(
+        `<code>${attackType}</code> is not a valid attack type. The attack type must be one of either <code>normalshot</code>, <code>analyticalshot</code>, or <code>stockstrike</code>.`
+      );
+    }
+    const isShootAttack = [
+      GUNSLINGER_ATTACK_TYPES.normal,
+      GUNSLINGER_ATTACK_TYPES.analytical,
+    ].includes(lowercasedAttackType);
+
+    if (isShootAttack) {
+      gunslingerHandleAmmo(
+        ['shoot', weaponId, amountToShoot, ...ammoIds],
+        characterName,
+        characterId
+      );
+    }
+    const weaponAttrString = `repeating_offense_${weaponId}_`;
+    const isAnalyticalShot =
+      isShootAttack &&
+      lowercasedAttackType === GUNSLINGER_ATTACK_TYPES.analytical;
+    const abilityModifierAttribute = isAnalyticalShot
+      ? 'intelligence_mod'
+      : 'dexterity_mod';
+    const [
+      weaponName,
+      weaponRange,
+      weaponDamageDice,
+      weaponDamageDieSize,
+      proficiencyBonus,
+      abilityModifier,
+    ] = MiscScripts.getCharacterAttr(characterId, [
+      `${weaponAttrString}name`,
+      `${weaponAttrString}range`,
+      { name: `${weaponAttrString}attack_damage_dice`, parseInt: true },
+      `${weaponAttrString}attack_damage_die`,
+      { name: `pb`, parseInt: true },
+      { name: abilityModifierAttribute, parseInt: true },
+    ]);
+    const gunslingerLevel = getClassLevels(characterId, 'gunslinger');
+    const firearmAttacksPerTurn =
+      gunslingerLevel === 20 ? 3 : gunslingerLevel >= 5 ? 2 : 1;
+
+    sendMessage(
+      {
+        messageToSend: `[[2d20]]`,
+      },
+      (ops) => {
+        const { results } = ops[0].inlinerolls[0];
+        const abilityModifierExpression = `${abilityModifier} [${
+          isAnalyticalShot ? 'Int' : 'Dex'
+        }]`;
+        const rollExpressions = _.map(results.rolls[0].results, (result) => {
+          const expression = `[[${result.v} [1d20] + ${proficiencyBonus} [prof] + ${abilityModifierExpression}]]`;
+
+          return styleInlineRolls(
+            { result: result.v, expression },
+            20,
+            parseInt(misfireThreshold) || 1
+          );
+        });
+        const damageExpression = isShootAttack
+          ? `[[${weaponDamageDice}${weaponDamageDieSize} + ${abilityModifierExpression} + 2 [Gun Duelist]]] piercing (metal round) or bludgeoning (rubber round)`
+          : `[[1 + ${abilityModifierExpression} + 2 [Gun Duelist]]] bludgeoning`;
+        const critDamageInfo = `\n**Damage on crit:** +${
+          isShootAttack ? weaponDamageDieSize.replace('d', '') : '1'
+        }`;
+        const ammoStatusInfo = isShootAttack
+          ? gunslingerAmmoStatus(characterId, weaponId, ammoIds)
+          : undefined;
+
+        sendMessage({
+          messageToSend: `&{template:5e-shaped} {{title=${characterName} - ${weaponName} (${
+            isAnalyticalShot
+              ? 'Analytical Shot'
+              : isShootAttack
+              ? 'Normal Shot'
+              : 'Stock Strike'
+          })<div style="font-size: 0.9rem;"><div>Range: ${
+            isShootAttack ? weaponRange : '5'
+          } ft</div><div>${firearmAttacksPerTurn} firearm attacks per turn</div></div>}} {{roll1=**Normal:** ${
+            rollExpressions[0]
+          }}} {{roll2=**(Dis)Advantage:** ${
+            rollExpressions[1]
+          }}} {{content=<div style="margin-top: 4px;">**Damage:** ${damageExpression} ${critDamageInfo} ${
+            ammoStatusInfo
+              ? `<div style="margin-top: 6px;">**Remaining Ammo:**${ammoStatusInfo.content}</div>`
+              : ''
+          }</div>}}`,
+        });
+      }
+    );
   }
 
   function gunslingerUseSuperiorityDie(
@@ -839,6 +1001,9 @@ const LOTASheetCompanion = (function () {
           break;
         case '!lotagunslingerammo':
           gunslingerHandleAmmo(restArgs, characterName, character.id);
+          break;
+        case '!lotagunslingerattack':
+          gunslingerHandleFirearmAttack(restArgs, characterName, character.id);
           break;
         case '!lotagunslingersuperiority':
           gunslingerUseSuperiorityDie(restArgs, characterName, character.id);
